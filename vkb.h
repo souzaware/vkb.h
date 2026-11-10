@@ -507,6 +507,21 @@ bool vkb_get_text_input_enabled(const vkb_context *context);
  */
 bool vkb_feed_text(vkb_context *context, const char *utf8_text, size_t text_length);
 
+/*
+ * Host-fed key event for a framework that already resolved the physical key,
+ * logical key, and modifiers. Text stays on the vkb_feed_text path.
+ * is_repeat is the host's repeat flag; if it is false but the physical key is
+ * already down, the event is still marked as a repeat.
+ */
+bool vkb_feed_key(
+	vkb_context *context,
+	vkb_physical_key physical_key,
+	vkb_key logical_key,
+	vkb_modifiers modifiers,
+	bool is_down,
+	bool is_repeat,
+	uint64_t timestamp_milliseconds);
+
 /* Clear held keys, modifiers, compose state, and repeat state. Emits key-up
  * events for keys that were down. */
 void vkb_focus_lost(vkb_context *context);
@@ -519,20 +534,19 @@ const char *vkb_layout_name(const vkb_context *context, int layout_index);
 int vkb_layout_active_index(const vkb_context *context);
 const char *vkb_layout_active_name(const vkb_context *context);
 
-#if defined(_WIN32)
+/*
+ * Declared on every platform so a binding generator sees the complete API.
+ * Only the matching platform provides definitions; calling another platform's
+ * feed fails to link, which is the intended compile-time boundary.
+ */
 bool vkb_win32_process_message(
 	vkb_context *context,
 	void *window_handle,
 	uint32_t message,
 	uintptr_t word_parameter,
 	intptr_t long_parameter);
-#endif
-
-#if defined(__APPLE__)
 bool vkb_macos_process_event(vkb_context *context, void *native_event);
-#endif
 
-#if defined(__linux__)
 /*
  * Wayland wl_keyboard feed. The file descriptor is consumed and closed by the
  * library. The keymap must arrive before modifiers or key events.
@@ -562,7 +576,6 @@ void vkb_wayland_enter(
 	const uint32_t *linux_input_event_codes,
 	size_t count);
 void vkb_wayland_leave(vkb_context *context);
-#endif
 
 #ifdef VKB_IMPLEMENTATION
 
@@ -1103,6 +1116,53 @@ bool vkb_feed_text(vkb_context *context, const char *utf8_text, size_t text_leng
 		return false;
 	}
 	return vkb_emit_text(context, utf8_text, text_length, vkb_current_time_milliseconds());
+}
+
+bool vkb_feed_key(
+	vkb_context *context,
+	vkb_physical_key physical_key,
+	vkb_key logical_key,
+	vkb_modifiers modifiers,
+	bool is_down,
+	bool is_repeat,
+	uint64_t timestamp_milliseconds) {
+	VKB_ASSERT(context != NULL);
+	if (timestamp_milliseconds == 0) {
+		timestamp_milliseconds = vkb_current_time_milliseconds();
+	}
+	context->modifiers = modifiers;
+	if (is_down) {
+		bool was_down = physical_key != VKB_PHYSICAL_KEY_UNKNOWN &&
+			vkb_physical_key_is_down_internal(context, physical_key);
+		if (physical_key != VKB_PHYSICAL_KEY_UNKNOWN) {
+			vkb_physical_key_set_down(context, physical_key, true);
+			vkb_store_logical_key(context, physical_key, logical_key);
+		}
+		vkb_emit_key_event(
+			context,
+			VKB_EVENT_KEY_DOWN,
+			physical_key,
+			logical_key,
+			is_repeat || was_down,
+			timestamp_milliseconds);
+		return true;
+	}
+	if (physical_key != VKB_PHYSICAL_KEY_UNKNOWN &&
+		!vkb_physical_key_is_down_internal(context, physical_key)) {
+		return true;
+	}
+	if (physical_key != VKB_PHYSICAL_KEY_UNKNOWN) {
+		vkb_physical_key_set_down(context, physical_key, false);
+		logical_key = vkb_take_logical_key(context, physical_key, logical_key);
+	}
+	vkb_emit_key_event(
+		context,
+		VKB_EVENT_KEY_UP,
+		physical_key,
+		logical_key,
+		false,
+		timestamp_milliseconds);
+	return true;
 }
 
 void vkb_focus_lost(vkb_context *context) {

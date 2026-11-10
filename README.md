@@ -82,6 +82,24 @@ Shortcut rule:
   it. Committed text is authoritative; do not infer composition from the key
   event alone.
 
+A framework that already resolved a key can feed it directly instead of using a
+native backend:
+
+```c
+vkb_feed_key(
+    context,
+    VKB_PHYSICAL_KEY_A,
+    'a',
+    VKB_MODIFIER_SHIFT,
+    true,   /* is_down */
+    false,  /* is_repeat */
+    0);     /* 0 means current monotonic time */
+```
+
+Committed text remains a separate `vkb_feed_text` call. `vkb_feed_key` derives a
+repeat when the physical key is already down, even if the host did not set the
+repeat flag.
+
 Key state and layout queries:
 
 ```c

@@ -460,6 +460,59 @@ static void test_wayland_focus_state(vkb_context *context) {
 		"leave clears held keys");
 }
 
+static void test_host_feed_key(vkb_context *context) {
+	vkb_event event;
+
+	vkb_feed_key(
+		context,
+		VKB_PHYSICAL_KEY_A,
+		'a',
+		VKB_MODIFIER_SHIFT,
+		true,
+		false,
+		1400);
+	event = next_event(context, "host key down");
+	check(event.type == VKB_EVENT_KEY_DOWN, "host key down type");
+	check(event.physical_key == VKB_PHYSICAL_KEY_A, "host key down physical key");
+	check(event.logical_key == 'a', "host key down logical key");
+	check(event.modifiers == VKB_MODIFIER_SHIFT, "host key down modifiers");
+	check(!event.is_repeat, "host key down is not a repeat");
+	check(
+		vkb_physical_key_is_down(context, VKB_PHYSICAL_KEY_A),
+		"host key down is held");
+
+	vkb_feed_key(
+		context,
+		VKB_PHYSICAL_KEY_A,
+		'a',
+		VKB_MODIFIER_SHIFT,
+		true,
+		false,
+		1410);
+	event = next_event(context, "host repeat");
+	check(event.type == VKB_EVENT_KEY_DOWN, "host repeat type");
+	check(event.is_repeat, "host repeat is marked from held state");
+
+	vkb_feed_key(
+		context,
+		VKB_PHYSICAL_KEY_A,
+		'a',
+		0,
+		false,
+		false,
+		1420);
+	event = next_event(context, "host key up");
+	check(event.type == VKB_EVENT_KEY_UP, "host key up type");
+	check(event.logical_key == 'a', "host key up keeps the stored logical key");
+	check(
+		!vkb_physical_key_is_down(context, VKB_PHYSICAL_KEY_A),
+		"host key up releases the key");
+
+	check(vkb_feed_text(context, "hi", 2), "host text accepted");
+	event = next_event(context, "host text");
+	check_text("hi", &event, "host text bytes");
+}
+
 static void test_focus_lost(vkb_context *context) {
 	vkb_event event;
 
@@ -500,6 +553,7 @@ int main(void) {
 	test_repeat(context);
 	test_wayland_focus_state(context);
 	test_focus_lost(context);
+	test_host_feed_key(context);
 
 	vkb_context_destroy(context);
 	if (failures != 0) {
